@@ -2,6 +2,8 @@
 
 An MCP (Model Context Protocol) server optimized for web development that enables AI assistants to generate and edit images using Google's Gemini API.
 
+After adding the MCP server to Cursor, just prompt the AI to generate or edit images for you - the agent will do the rest.
+
 ## Features
 
 - **Image Generation** - Generate images with aspect ratio presets (hero, square, portrait, landscape, banner, mobile) and resolutions up to 4K
@@ -89,16 +91,17 @@ Add to your `claude_desktop_config.json`:
 
 ### `generate_image`
 
-Generate an image from a text prompt. **The AI must determine the correct output path in your project before calling this tool.**
+Generate an image from a text prompt, optionally using reference images to guide the style or composition. **The AI must determine the correct output path in your project before calling this tool.**
 
-| Parameter     | Type   | Required | Description                                                                                                                    |
-| ------------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `prompt`      | string | Yes      | Text description of the image to generate                                                                                      |
-| `outputPath`  | string | Yes      | **Absolute path** where the image should be saved (e.g., `/Users/you/project/public/images/hero.png`)                          |
-| `aspectRatio` | string | No       | Preset: `hero` (16:9), `square` (1:1), `portrait` (3:4), `landscape` (4:3), `banner` (21:9), `mobile` (9:16) or explicit ratio |
-| `resolution`  | string | No       | `1K` (default), `2K`, or `4K`                                                                                                  |
+| Parameter         | Type     | Required | Description                                                                                                                    |
+| ----------------- | -------- | -------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `prompt`          | string   | Yes      | Text description of the image to generate                                                                                      |
+| `outputPath`      | string   | Yes      | **Absolute path** where the image should be saved (e.g., `/Users/you/project/public/images/hero.png`)                          |
+| `referenceImages` | string[] | No       | Array of absolute paths to reference images for style/composition guidance                                                     |
+| `aspectRatio`     | string   | No       | Preset: `hero` (16:9), `square` (1:1), `portrait` (3:4), `landscape` (4:3), `banner` (21:9), `mobile` (9:16) or explicit ratio |
+| `resolution`      | string   | No       | `1K` (default), `2K`, or `4K`                                                                                                  |
 
-**Example:**
+**Example (text-to-image):**
 
 ```json
 {
@@ -106,6 +109,17 @@ Generate an image from a text prompt. **The AI must determine the correct output
   "outputPath": "/Users/you/my-project/public/images/hero.png",
   "aspectRatio": "hero",
   "resolution": "2K"
+}
+```
+
+**Example (with reference images):**
+
+```json
+{
+  "prompt": "Create a new image in the same style as the reference, but with a mountain landscape",
+  "outputPath": "/Users/you/my-project/public/images/mountain.png",
+  "referenceImages": ["/Users/you/my-project/public/images/style-reference.png"],
+  "aspectRatio": "landscape"
 }
 ```
 
