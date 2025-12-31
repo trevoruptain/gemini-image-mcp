@@ -1,6 +1,6 @@
 {
   "name": "gemini-image-mcp",
-  "version": "2.0.0",
+  "version": "0.0.1",
   "description": "MCP server for generating and editing images with Google Gemini for web development",
   "type": "module",
   "main": "dist/server.js",

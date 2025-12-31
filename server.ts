@@ -98,7 +98,7 @@ startExpressServer(PORT);
 const server = new Server(
   {
     name: "gemini-image-mcp",
-    version: "2.0.0",
+    version: "3.0.0",
   },
   {
     capabilities: {
@@ -158,20 +158,25 @@ function extractImageFromResponse(response: unknown): {
   return null;
 }
 
-// Helper: Save image and return result
+// Helper: Save image to specified path
 function saveImage(
   imageData: string,
+  outputPath: string,
   filename?: string
-): { id: string; url: string; path: string } {
+): { id: string; path: string } {
   const id = filename || uuidv4();
   const safeId = id.replace(/[^a-zA-Z0-9_-]/g, "_");
-  const imagePath = path.join(IMAGES_DIR, `${safeId}.png`);
-  const url = `/images/${safeId}.png`;
+
+  // Ensure the output directory exists
+  const outputDir = path.dirname(outputPath);
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir, { recursive: true });
+  }
 
   const buffer = Buffer.from(imageData, "base64");
-  fs.writeFileSync(imagePath, buffer);
+  fs.writeFileSync(outputPath, buffer);
 
-  return { id: safeId, url, path: imagePath };
+  return { id: safeId, path: outputPath };
 }
 
 // List available tools
@@ -181,7 +186,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: "generate_image",
         description:
-          "Generate an image for web development using Google Gemini. Supports aspect ratio presets (hero, square, portrait, landscape, banner, mobile) or explicit ratios (16:9, 1:1, etc.), and resolutions (1K, 2K, 4K).",
+          "Generate an image using Google Gemini. IMPORTANT: Before calling this tool, determine the correct output path in the user's project (e.g., public/images/, src/assets/, etc.). Supports aspect ratio presets (hero, square, portrait, landscape, banner, mobile) or explicit ratios (16:9, 1:1, etc.), and resolutions (1K, 2K, 4K).",
         inputSchema: {
           type: "object",
           properties: {
@@ -189,10 +194,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: "string",
               description: "Text description of the image to generate",
             },
-            filename: {
+            outputPath: {
               type: "string",
               description:
-                "Optional custom filename (without extension) for the generated image",
+                "REQUIRED: Absolute path where the image should be saved (e.g., /Users/name/project/public/images/hero.png). Determine this path BEFORE calling the tool by checking the project's image directory structure.",
             },
             aspectRatio: {
               type: "string",
@@ -205,13 +210,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 "Output resolution: 1K (default), 2K, or 4K. Higher resolutions take longer.",
             },
           },
-          required: ["prompt"],
+          required: ["prompt", "outputPath"],
         },
       },
       {
         name: "edit_image",
         description:
-          "Edit an existing image in the workspace. Provide the source image path and describe what changes to make.",
+          "Edit an existing image using Google Gemini. IMPORTANT: Before calling this tool, determine the correct output path in the user's project. Provide the source image path and describe what changes to make.",
         inputSchema: {
           type: "object",
           properties: {
@@ -222,12 +227,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             sourceImage: {
               type: "string",
-              description: "Path to the source image file in the workspace",
+              description: "Absolute path to the source image file to edit",
             },
-            filename: {
+            outputPath: {
               type: "string",
               description:
-                "Optional custom filename (without extension) for the edited image",
+                "REQUIRED: Absolute path where the edited image should be saved. Determine this path BEFORE calling the tool.",
             },
             aspectRatio: {
               type: "string",
@@ -239,7 +244,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               description: "Output resolution: 1K (default), 2K, or 4K.",
             },
           },
-          required: ["prompt", "sourceImage"],
+          required: ["prompt", "sourceImage", "outputPath"],
         },
       },
     ],
@@ -253,9 +258,9 @@ server.setRequestHandler(
     const { name, arguments: args } = request.params;
 
     if (name === "generate_image") {
-      const { prompt, filename, aspectRatio, resolution } = args as {
+      const { prompt, outputPath, aspectRatio, resolution } = args as {
         prompt: string;
-        filename?: string;
+        outputPath: string;
         aspectRatio?: string;
         resolution?: string;
       };
@@ -264,12 +269,16 @@ server.setRequestHandler(
         throw new Error("prompt is required and must be a string");
       }
 
+      if (!outputPath || typeof outputPath !== "string") {
+        throw new Error(
+          "outputPath is required - specify the absolute path where the image should be saved in the project"
+        );
+      }
+
       const resolvedAspectRatio = resolveAspectRatio(aspectRatio);
       const resolvedResolution = resolveResolution(resolution);
 
       try {
-        // Use type assertion to include imageConfig which is supported by the API
-        // but not yet in the SDK types
         const response = await ai.models.generateContent({
           model: "gemini-3-pro-image-preview",
           contents: prompt,
@@ -287,7 +296,7 @@ server.setRequestHandler(
           throw new Error("No image was generated in the response");
         }
 
-        const saved = saveImage(imageResult.data, filename);
+        const saved = saveImage(imageResult.data, outputPath);
 
         return {
           content: [
@@ -295,8 +304,7 @@ server.setRequestHandler(
               type: "text",
               text: JSON.stringify(
                 {
-                  id: saved.id,
-                  url: saved.url,
+                  path: saved.path,
                   aspectRatio: resolvedAspectRatio,
                   resolution: resolvedResolution,
                 },
@@ -314,11 +322,11 @@ server.setRequestHandler(
     }
 
     if (name === "edit_image") {
-      const { prompt, sourceImage, filename, aspectRatio, resolution } =
+      const { prompt, sourceImage, outputPath, aspectRatio, resolution } =
         args as {
           prompt: string;
           sourceImage: string;
-          filename?: string;
+          outputPath: string;
           aspectRatio?: string;
           resolution?: string;
         };
@@ -331,29 +339,22 @@ server.setRequestHandler(
         throw new Error("sourceImage path is required");
       }
 
-      // Resolve the source image path
-      let imagePath = sourceImage;
-      if (!path.isAbsolute(imagePath)) {
-        // Try relative to workspace or current directory
-        if (!fs.existsSync(imagePath)) {
-          // Try relative to images directory
-          const inImagesDir = path.join(IMAGES_DIR, path.basename(imagePath));
-          if (fs.existsSync(inImagesDir)) {
-            imagePath = inImagesDir;
-          }
-        }
+      if (!outputPath || typeof outputPath !== "string") {
+        throw new Error(
+          "outputPath is required - specify the absolute path where the edited image should be saved"
+        );
       }
 
-      if (!fs.existsSync(imagePath)) {
+      if (!fs.existsSync(sourceImage)) {
         throw new Error(`Source image not found: ${sourceImage}`);
       }
 
       // Read and encode the source image
-      const imageBuffer = fs.readFileSync(imagePath);
+      const imageBuffer = fs.readFileSync(sourceImage);
       const base64Image = imageBuffer.toString("base64");
 
       // Determine MIME type from extension
-      const ext = path.extname(imagePath).toLowerCase();
+      const ext = path.extname(sourceImage).toLowerCase();
       const mimeType =
         ext === ".jpg" || ext === ".jpeg"
           ? "image/jpeg"
@@ -381,7 +382,6 @@ server.setRequestHandler(
           { text: prompt },
         ];
 
-        // Build config with imageConfig (using type assertion as SDK types don't include it yet)
         const config: Record<string, unknown> = {
           responseModalities: ["TEXT", "IMAGE"],
         };
@@ -404,7 +404,7 @@ server.setRequestHandler(
           throw new Error("No image was generated in the response");
         }
 
-        const saved = saveImage(imageResult.data, filename);
+        const saved = saveImage(imageResult.data, outputPath);
 
         return {
           content: [
@@ -412,8 +412,7 @@ server.setRequestHandler(
               type: "text",
               text: JSON.stringify(
                 {
-                  id: saved.id,
-                  url: saved.url,
+                  path: saved.path,
                   sourceImage,
                   aspectRatio: resolvedAspectRatio || "preserved",
                   resolution: resolvedResolution,

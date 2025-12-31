@@ -18,7 +18,7 @@ An MCP (Model Context Protocol) server optimized for web development that enable
 ## Installation
 
 ```bash
-git clone https://github.com/trevoruptain/gemini-image-mcp.git
+git clone https://github.com/yourusername/gemini-image-mcp.git
 cd gemini-image-mcp
 npm install
 npm run build
@@ -89,12 +89,12 @@ Add to your `claude_desktop_config.json`:
 
 ### `generate_image`
 
-Generate an image from a text prompt with web-optimized aspect ratios and resolutions.
+Generate an image from a text prompt. **The AI must determine the correct output path in your project before calling this tool.**
 
 | Parameter     | Type   | Required | Description                                                                                                                    |
 | ------------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | `prompt`      | string | Yes      | Text description of the image to generate                                                                                      |
-| `filename`    | string | No       | Custom filename (without extension). Defaults to UUID.                                                                         |
+| `outputPath`  | string | Yes      | **Absolute path** where the image should be saved (e.g., `/Users/you/project/public/images/hero.png`)                          |
 | `aspectRatio` | string | No       | Preset: `hero` (16:9), `square` (1:1), `portrait` (3:4), `landscape` (4:3), `banner` (21:9), `mobile` (9:16) or explicit ratio |
 | `resolution`  | string | No       | `1K` (default), `2K`, or `4K`                                                                                                  |
 
@@ -103,7 +103,7 @@ Generate an image from a text prompt with web-optimized aspect ratios and resolu
 ```json
 {
   "prompt": "A modern hero image for a tech startup website with abstract geometric shapes",
-  "filename": "hero-image",
+  "outputPath": "/Users/you/my-project/public/images/hero.png",
   "aspectRatio": "hero",
   "resolution": "2K"
 }
@@ -113,8 +113,7 @@ Generate an image from a text prompt with web-optimized aspect ratios and resolu
 
 ```json
 {
-  "id": "hero-image",
-  "url": "/images/hero-image.png",
+  "path": "/Users/you/my-project/public/images/hero.png",
   "aspectRatio": "16:9",
   "resolution": "2K"
 }
@@ -122,23 +121,23 @@ Generate an image from a text prompt with web-optimized aspect ratios and resolu
 
 ### `edit_image`
 
-Edit an existing image in your workspace using natural language.
+Edit an existing image using natural language. **The AI must determine the correct output path before calling this tool.**
 
-| Parameter     | Type   | Required | Description                                             |
-| ------------- | ------ | -------- | ------------------------------------------------------- |
-| `prompt`      | string | Yes      | Description of what to change                           |
-| `sourceImage` | string | Yes      | Path to the source image file in the workspace          |
-| `filename`    | string | No       | Custom filename for the edited image. Defaults to UUID. |
-| `aspectRatio` | string | No       | Optionally change aspect ratio during edit              |
-| `resolution`  | string | No       | `1K` (default), `2K`, or `4K`                           |
+| Parameter     | Type   | Required | Description                                              |
+| ------------- | ------ | -------- | -------------------------------------------------------- |
+| `prompt`      | string | Yes      | Description of what to change                            |
+| `sourceImage` | string | Yes      | **Absolute path** to the source image file               |
+| `outputPath`  | string | Yes      | **Absolute path** where the edited image should be saved |
+| `aspectRatio` | string | No       | Optionally change aspect ratio during edit               |
+| `resolution`  | string | No       | `1K` (default), `2K`, or `4K`                            |
 
 **Example:**
 
 ```json
 {
   "prompt": "Change the background color to a gradient of blue and purple",
-  "sourceImage": "/path/to/original-image.png",
-  "filename": "edited-hero"
+  "sourceImage": "/Users/you/my-project/public/images/hero.png",
+  "outputPath": "/Users/you/my-project/public/images/hero-edited.png"
 }
 ```
 
@@ -153,13 +152,13 @@ Edit an existing image in your workspace using natural language.
 | `banner`    | 21:9  | Wide banners, headers      |
 | `mobile`    | 9:16  | Mobile screens, stories    |
 
-## Accessing Generated Images
+## How It Works
 
-Images are accessible in three ways:
+Images are saved **directly to your project** at the path you specify. The AI determines the correct output path by examining your project structure before generating images. This means:
 
-1. **MCP Resources** - Listed at `images/{id}.png`, readable as base64-encoded PNGs
-2. **HTTP** - Available at `http://localhost:3001/images/{id}.png`
-3. **Filesystem** - Stored in the `./images/` directory
+- Images appear immediately in your project (e.g., `public/images/`, `src/assets/`)
+- No manual copying required
+- Works seamlessly with any project structure
 
 ## Development
 
