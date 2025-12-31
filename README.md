@@ -1,10 +1,12 @@
 # Gemini Image MCP
 
-An MCP (Model Context Protocol) server that enables AI assistants to generate images using Google's Gemini API.
+An MCP (Model Context Protocol) server optimized for web development that enables AI assistants to generate and edit images using Google's Gemini API.
 
 ## Features
 
-- **Image Generation Tool** - Generate images from text prompts via Gemini's `gemini-3-pro-image-preview` model
+- **Image Generation** - Generate images with aspect ratio presets (hero, square, portrait, landscape, banner, mobile) and resolutions up to 4K
+- **Image Editing** - Edit existing images in your workspace with natural language
+- **Web-Optimized** - Presets designed for common web development use cases
 - **MCP Resources** - Access generated images as MCP resources
 - **Static File Server** - Express server for direct HTTP access to images
 
@@ -83,38 +85,75 @@ Add to your `claude_desktop_config.json`:
 }
 ```
 
-## Usage
+## Tools
 
-Once configured, the AI assistant can use the `generate_image` tool:
+### `generate_image`
 
-### Tool: `generate_image`
+Generate an image from a text prompt with web-optimized aspect ratios and resolutions.
 
-Generates an image from a text prompt.
+| Parameter     | Type   | Required | Description                                                                                                                    |
+| ------------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `prompt`      | string | Yes      | Text description of the image to generate                                                                                      |
+| `filename`    | string | No       | Custom filename (without extension). Defaults to UUID.                                                                         |
+| `aspectRatio` | string | No       | Preset: `hero` (16:9), `square` (1:1), `portrait` (3:4), `landscape` (4:3), `banner` (21:9), `mobile` (9:16) or explicit ratio |
+| `resolution`  | string | No       | `1K` (default), `2K`, or `4K`                                                                                                  |
 
-**Input:**
+**Example:**
 
 ```json
 {
-  "prompt": "A serene mountain landscape at sunset",
-  "filename": "mountain-sunset"
+  "prompt": "A modern hero image for a tech startup website with abstract geometric shapes",
+  "filename": "hero-image",
+  "aspectRatio": "hero",
+  "resolution": "2K"
 }
 ```
-
-| Parameter  | Type   | Required | Description                                              |
-| ---------- | ------ | -------- | -------------------------------------------------------- |
-| `prompt`   | string | Yes      | Text description of the image to generate                |
-| `filename` | string | No       | Custom filename (without extension). Defaults to a UUID. |
 
 **Output:**
 
 ```json
 {
-  "id": "mountain-sunset",
-  "url": "/images/mountain-sunset.png"
+  "id": "hero-image",
+  "url": "/images/hero-image.png",
+  "aspectRatio": "16:9",
+  "resolution": "2K"
 }
 ```
 
-### Accessing Generated Images
+### `edit_image`
+
+Edit an existing image in your workspace using natural language.
+
+| Parameter     | Type   | Required | Description                                             |
+| ------------- | ------ | -------- | ------------------------------------------------------- |
+| `prompt`      | string | Yes      | Description of what to change                           |
+| `sourceImage` | string | Yes      | Path to the source image file in the workspace          |
+| `filename`    | string | No       | Custom filename for the edited image. Defaults to UUID. |
+| `aspectRatio` | string | No       | Optionally change aspect ratio during edit              |
+| `resolution`  | string | No       | `1K` (default), `2K`, or `4K`                           |
+
+**Example:**
+
+```json
+{
+  "prompt": "Change the background color to a gradient of blue and purple",
+  "sourceImage": "/path/to/original-image.png",
+  "filename": "edited-hero"
+}
+```
+
+## Aspect Ratio Presets
+
+| Preset      | Ratio | Common Use Case            |
+| ----------- | ----- | -------------------------- |
+| `hero`      | 16:9  | Hero sections, headers     |
+| `square`    | 1:1   | Thumbnails, avatars, icons |
+| `portrait`  | 3:4   | Cards, profile images      |
+| `landscape` | 4:3   | Blog images, galleries     |
+| `banner`    | 21:9  | Wide banners, headers      |
+| `mobile`    | 9:16  | Mobile screens, stories    |
+
+## Accessing Generated Images
 
 Images are accessible in three ways:
 
