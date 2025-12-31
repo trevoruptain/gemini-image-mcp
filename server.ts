@@ -22,9 +22,40 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Configuration
-const IMAGES_DIR = path.join(__dirname, "images");
+// Use project root's images directory (go up from dist/ if running compiled)
+const PROJECT_ROOT = __dirname.endsWith("dist")
+  ? path.dirname(__dirname)
+  : __dirname;
+const IMAGES_DIR = path.join(PROJECT_ROOT, "images");
 const PORT = parseInt(process.env.PORT || "3001", 10);
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+
+// Aspect ratio presets for web development
+const ASPECT_PRESETS: Record<string, string> = {
+  hero: "16:9",
+  square: "1:1",
+  portrait: "3:4",
+  landscape: "4:3",
+  banner: "21:9",
+  mobile: "9:16",
+};
+
+// Valid aspect ratios supported by Gemini
+const VALID_ASPECT_RATIOS = [
+  "1:1",
+  "2:3",
+  "3:2",
+  "3:4",
+  "4:3",
+  "4:5",
+  "5:4",
+  "9:16",
+  "16:9",
+  "21:9",
+];
+
+// Valid resolutions for Gemini 3 Pro
+const VALID_RESOLUTIONS = ["1K", "2K", "4K"];
 
 // Ensure images directory exists
 if (!fs.existsSync(IMAGES_DIR)) {
@@ -43,16 +74,31 @@ const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 const app = express();
 app.use("/images", express.static(IMAGES_DIR));
 
-// Start Express server
-const expressServer = app.listen(PORT, () => {
-  console.error(`Express server running on http://localhost:${PORT}`);
-});
+// Start Express server with error handling
+let expressServer: ReturnType<typeof app.listen> | null = null;
+
+function startExpressServer(port: number): void {
+  expressServer = app.listen(port, () => {
+    console.error(`Express server running on http://localhost:${port}`);
+  });
+
+  expressServer.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE") {
+      console.error(`Port ${port} is in use, trying ${port + 1}...`);
+      startExpressServer(port + 1);
+    } else {
+      console.error(`Express server error: ${err.message}`);
+    }
+  });
+}
+
+startExpressServer(PORT);
 
 // Initialize MCP Server
 const server = new Server(
   {
     name: "gemini-image-mcp",
-    version: "1.0.0",
+    version: "2.0.0",
   },
   {
     capabilities: {
@@ -62,6 +108,72 @@ const server = new Server(
   }
 );
 
+// Helper: Resolve aspect ratio from preset or direct value
+function resolveAspectRatio(input?: string): string {
+  if (!input) return "1:1";
+  const preset = ASPECT_PRESETS[input.toLowerCase()];
+  if (preset) return preset;
+  if (VALID_ASPECT_RATIOS.includes(input)) return input;
+  console.error(`Invalid aspect ratio "${input}", defaulting to 1:1`);
+  return "1:1";
+}
+
+// Helper: Validate resolution
+function resolveResolution(input?: string): string {
+  if (!input) return "1K";
+  const upper = input.toUpperCase();
+  if (VALID_RESOLUTIONS.includes(upper)) return upper;
+  console.error(`Invalid resolution "${input}", defaulting to 1K`);
+  return "1K";
+}
+
+// Helper: Extract image from Gemini response
+function extractImageFromResponse(response: unknown): {
+  data: string;
+  mimeType: string;
+} | null {
+  const resp = response as {
+    candidates?: Array<{
+      content?: {
+        parts?: Array<{
+          inlineData?: { data?: string; mimeType?: string };
+        }>;
+      };
+    }>;
+  };
+
+  if (resp.candidates && resp.candidates.length > 0) {
+    const candidate = resp.candidates[0];
+    if (candidate.content && candidate.content.parts) {
+      for (const part of candidate.content.parts) {
+        if (part.inlineData && part.inlineData.data) {
+          return {
+            data: part.inlineData.data,
+            mimeType: part.inlineData.mimeType || "image/png",
+          };
+        }
+      }
+    }
+  }
+  return null;
+}
+
+// Helper: Save image and return result
+function saveImage(
+  imageData: string,
+  filename?: string
+): { id: string; url: string; path: string } {
+  const id = filename || uuidv4();
+  const safeId = id.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const imagePath = path.join(IMAGES_DIR, `${safeId}.png`);
+  const url = `/images/${safeId}.png`;
+
+  const buffer = Buffer.from(imageData, "base64");
+  fs.writeFileSync(imagePath, buffer);
+
+  return { id: safeId, url, path: imagePath };
+}
+
 // List available tools
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
@@ -69,21 +181,65 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: "generate_image",
         description:
-          "Generate an image using Google Gemini AI based on a text prompt",
+          "Generate an image for web development using Google Gemini. Supports aspect ratio presets (hero, square, portrait, landscape, banner, mobile) or explicit ratios (16:9, 1:1, etc.), and resolutions (1K, 2K, 4K).",
         inputSchema: {
           type: "object",
           properties: {
             prompt: {
               type: "string",
-              description: "The text prompt describing the image to generate",
+              description: "Text description of the image to generate",
             },
             filename: {
               type: "string",
               description:
                 "Optional custom filename (without extension) for the generated image",
             },
+            aspectRatio: {
+              type: "string",
+              description:
+                "Aspect ratio preset (hero, square, portrait, landscape, banner, mobile) or explicit ratio (16:9, 1:1, 3:4, 4:3, 21:9, 9:16). Defaults to square (1:1).",
+            },
+            resolution: {
+              type: "string",
+              description:
+                "Output resolution: 1K (default), 2K, or 4K. Higher resolutions take longer.",
+            },
           },
           required: ["prompt"],
+        },
+      },
+      {
+        name: "edit_image",
+        description:
+          "Edit an existing image in the workspace. Provide the source image path and describe what changes to make.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            prompt: {
+              type: "string",
+              description:
+                "Description of what to change in the image (e.g., 'change the background to blue', 'add a logo in the corner')",
+            },
+            sourceImage: {
+              type: "string",
+              description: "Path to the source image file in the workspace",
+            },
+            filename: {
+              type: "string",
+              description:
+                "Optional custom filename (without extension) for the edited image",
+            },
+            aspectRatio: {
+              type: "string",
+              description:
+                "Optional: change aspect ratio during edit. Preset or explicit ratio.",
+            },
+            resolution: {
+              type: "string",
+              description: "Output resolution: 1K (default), 2K, or 4K.",
+            },
+          },
+          required: ["prompt", "sourceImage"],
         },
       },
     ],
@@ -96,82 +252,198 @@ server.setRequestHandler(
   async (request: CallToolRequest) => {
     const { name, arguments: args } = request.params;
 
-    if (name !== "generate_image") {
-      throw new Error(`Unknown tool: ${name}`);
+    if (name === "generate_image") {
+      const { prompt, filename, aspectRatio, resolution } = args as {
+        prompt: string;
+        filename?: string;
+        aspectRatio?: string;
+        resolution?: string;
+      };
+
+      if (!prompt || typeof prompt !== "string") {
+        throw new Error("prompt is required and must be a string");
+      }
+
+      const resolvedAspectRatio = resolveAspectRatio(aspectRatio);
+      const resolvedResolution = resolveResolution(resolution);
+
+      try {
+        // Use type assertion to include imageConfig which is supported by the API
+        // but not yet in the SDK types
+        const response = await ai.models.generateContent({
+          model: "gemini-3-pro-image-preview",
+          contents: prompt,
+          config: {
+            responseModalities: ["TEXT", "IMAGE"],
+            imageConfig: {
+              aspectRatio: resolvedAspectRatio,
+              imageSize: resolvedResolution,
+            },
+          } as Record<string, unknown>,
+        });
+
+        const imageResult = extractImageFromResponse(response);
+        if (!imageResult) {
+          throw new Error("No image was generated in the response");
+        }
+
+        const saved = saveImage(imageResult.data, filename);
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  id: saved.id,
+                  url: saved.url,
+                  aspectRatio: resolvedAspectRatio,
+                  resolution: resolvedResolution,
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : "Unknown error occurred";
+        throw new Error(`Failed to generate image: ${errorMessage}`);
+      }
     }
 
-    const { prompt, filename } = args as { prompt: string; filename?: string };
+    if (name === "edit_image") {
+      const { prompt, sourceImage, filename, aspectRatio, resolution } =
+        args as {
+          prompt: string;
+          sourceImage: string;
+          filename?: string;
+          aspectRatio?: string;
+          resolution?: string;
+        };
 
-    if (!prompt || typeof prompt !== "string") {
-      throw new Error("prompt is required and must be a string");
-    }
+      if (!prompt || typeof prompt !== "string") {
+        throw new Error("prompt is required and must be a string");
+      }
 
-    try {
-      // Create chat with Gemini for image generation
-      const chat = ai.chats.create({
-        model: "gemini-3-pro-image-preview",
-        config: {
-          responseModalities: ["TEXT", "IMAGE"],
-        },
-      });
+      if (!sourceImage || typeof sourceImage !== "string") {
+        throw new Error("sourceImage path is required");
+      }
 
-      // Send the prompt and get response
-      const response = await chat.sendMessage({ message: prompt });
-
-      // Extract image from response
-      let imageData: string | null = null;
-      let mimeType: string = "image/png";
-
-      if (response.candidates && response.candidates.length > 0) {
-        const candidate = response.candidates[0];
-        if (candidate.content && candidate.content.parts) {
-          for (const part of candidate.content.parts) {
-            if (part.inlineData && part.inlineData.data) {
-              imageData = part.inlineData.data;
-              mimeType = part.inlineData.mimeType || "image/png";
-              break;
-            }
+      // Resolve the source image path
+      let imagePath = sourceImage;
+      if (!path.isAbsolute(imagePath)) {
+        // Try relative to workspace or current directory
+        if (!fs.existsSync(imagePath)) {
+          // Try relative to images directory
+          const inImagesDir = path.join(IMAGES_DIR, path.basename(imagePath));
+          if (fs.existsSync(inImagesDir)) {
+            imagePath = inImagesDir;
           }
         }
       }
 
-      if (!imageData) {
-        throw new Error("No image was generated in the response");
+      if (!fs.existsSync(imagePath)) {
+        throw new Error(`Source image not found: ${sourceImage}`);
       }
 
-      // Generate ID and filename
-      const id = filename || uuidv4();
-      const safeId = id.replace(/[^a-zA-Z0-9_-]/g, "_");
-      const imagePath = path.join(IMAGES_DIR, `${safeId}.png`);
-      const url = `/images/${safeId}.png`;
+      // Read and encode the source image
+      const imageBuffer = fs.readFileSync(imagePath);
+      const base64Image = imageBuffer.toString("base64");
 
-      // Decode base64 and save to file
-      const buffer = Buffer.from(imageData, "base64");
-      fs.writeFileSync(imagePath, buffer);
+      // Determine MIME type from extension
+      const ext = path.extname(imagePath).toLowerCase();
+      const mimeType =
+        ext === ".jpg" || ext === ".jpeg"
+          ? "image/jpeg"
+          : ext === ".png"
+          ? "image/png"
+          : ext === ".gif"
+          ? "image/gif"
+          : ext === ".webp"
+          ? "image/webp"
+          : "image/png";
 
-      return {
-        content: [
+      const resolvedAspectRatio = aspectRatio
+        ? resolveAspectRatio(aspectRatio)
+        : undefined;
+      const resolvedResolution = resolveResolution(resolution);
+
+      try {
+        const contents = [
           {
-            type: "text",
-            text: JSON.stringify({ id: safeId, url }, null, 2),
+            inlineData: {
+              mimeType,
+              data: base64Image,
+            },
           },
-        ],
-      };
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : "Unknown error occurred";
-      throw new Error(`Failed to generate image: ${errorMessage}`);
+          { text: prompt },
+        ];
+
+        // Build config with imageConfig (using type assertion as SDK types don't include it yet)
+        const config: Record<string, unknown> = {
+          responseModalities: ["TEXT", "IMAGE"],
+        };
+
+        if (resolvedAspectRatio || resolvedResolution) {
+          config.imageConfig = {
+            ...(resolvedAspectRatio && { aspectRatio: resolvedAspectRatio }),
+            ...(resolvedResolution && { imageSize: resolvedResolution }),
+          };
+        }
+
+        const response = await ai.models.generateContent({
+          model: "gemini-3-pro-image-preview",
+          contents,
+          config: config as Record<string, unknown>,
+        });
+
+        const imageResult = extractImageFromResponse(response);
+        if (!imageResult) {
+          throw new Error("No image was generated in the response");
+        }
+
+        const saved = saveImage(imageResult.data, filename);
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  id: saved.id,
+                  url: saved.url,
+                  sourceImage,
+                  aspectRatio: resolvedAspectRatio || "preserved",
+                  resolution: resolvedResolution,
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : "Unknown error occurred";
+        throw new Error(`Failed to edit image: ${errorMessage}`);
+      }
     }
+
+    throw new Error(`Unknown tool: ${name}`);
   }
 );
 
 // List available resources (generated images)
 server.setRequestHandler(ListResourcesRequestSchema, async () => {
   const files: string[] = fs.readdirSync(IMAGES_DIR);
-  const pngFiles = files.filter((file: string) => file.endsWith(".png"));
+  const imageFiles = files.filter((file: string) =>
+    /\.(png|jpg|jpeg|gif|webp)$/i.test(file)
+  );
 
   return {
-    resources: pngFiles.map((file: string) => ({
+    resources: imageFiles.map((file: string) => ({
       uri: `images/${file}`,
       name: file,
       mimeType: "image/png",
@@ -186,8 +458,7 @@ server.setRequestHandler(
   async (request: ReadResourceRequest) => {
     const { uri } = request.params;
 
-    // Extract filename from URI (format: images/{filename}.png)
-    const match = uri.match(/^images\/(.+\.png)$/);
+    const match = uri.match(/^images\/(.+\.(png|jpg|jpeg|gif|webp))$/i);
     if (!match) {
       throw new Error(`Invalid resource URI: ${uri}`);
     }
@@ -199,7 +470,6 @@ server.setRequestHandler(
       throw new Error(`Resource not found: ${uri}`);
     }
 
-    // Read file and encode as base64
     const buffer = fs.readFileSync(filePath);
     const base64Data = buffer.toString("base64");
 
@@ -219,19 +489,19 @@ server.setRequestHandler(
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("Gemini Image MCP server running on stdio");
+  console.error("Gemini Image MCP server v2.0 running on stdio");
 }
 
 // Handle graceful shutdown
 process.on("SIGINT", () => {
   console.error("Shutting down...");
-  expressServer.close();
+  expressServer?.close();
   process.exit(0);
 });
 
 process.on("SIGTERM", () => {
   console.error("Shutting down...");
-  expressServer.close();
+  expressServer?.close();
   process.exit(0);
 });
 
