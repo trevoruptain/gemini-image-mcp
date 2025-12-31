@@ -127,6 +127,33 @@ function resolveResolution(input?: string): string {
 }
 
 // Helper: Extract image from Gemini response
+// Helper: Read and encode image file to base64
+function readImageAsBase64(imagePath: string): {
+  data: string;
+  mimeType: string;
+} {
+  if (!fs.existsSync(imagePath)) {
+    throw new Error(`Image not found: ${imagePath}`);
+  }
+
+  const imageBuffer = fs.readFileSync(imagePath);
+  const base64Image = imageBuffer.toString("base64");
+
+  const ext = path.extname(imagePath).toLowerCase();
+  const mimeType =
+    ext === ".jpg" || ext === ".jpeg"
+      ? "image/jpeg"
+      : ext === ".png"
+      ? "image/png"
+      : ext === ".gif"
+      ? "image/gif"
+      : ext === ".webp"
+      ? "image/webp"
+      : "image/png";
+
+  return { data: base64Image, mimeType };
+}
+
 function extractImageFromResponse(response: unknown): {
   data: string;
   mimeType: string;
@@ -206,6 +233,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               description:
                 "REQUIRED: Absolute path where the image should be saved (e.g., /Users/name/project/public/images/hero.png). Determine this path BEFORE calling the tool by checking the project's image directory structure.",
             },
+            referenceImages: {
+              type: "array",
+              items: { type: "string" },
+              description:
+                "Optional array of absolute paths to reference images. Use these to guide style, composition, or content of the generated image.",
+            },
             aspectRatio: {
               type: "string",
               description:
@@ -265,12 +298,14 @@ server.setRequestHandler(
     const { name, arguments: args } = request.params;
 
     if (name === "generate_image") {
-      const { prompt, outputPath, aspectRatio, resolution } = args as {
-        prompt: string;
-        outputPath: string;
-        aspectRatio?: string;
-        resolution?: string;
-      };
+      const { prompt, outputPath, referenceImages, aspectRatio, resolution } =
+        args as {
+          prompt: string;
+          outputPath: string;
+          referenceImages?: string[];
+          aspectRatio?: string;
+          resolution?: string;
+        };
 
       if (!prompt || typeof prompt !== "string") {
         throw new Error("prompt is required and must be a string");
@@ -286,9 +321,28 @@ server.setRequestHandler(
       const resolvedResolution = resolveResolution(resolution);
 
       try {
+        // Build contents: reference images first, then prompt
+        const contents: Array<
+          { inlineData: { mimeType: string; data: string } } | { text: string }
+        > = [];
+
+        if (referenceImages && referenceImages.length > 0) {
+          for (const imagePath of referenceImages) {
+            const imageData = readImageAsBase64(imagePath);
+            contents.push({
+              inlineData: {
+                mimeType: imageData.mimeType,
+                data: imageData.data,
+              },
+            });
+          }
+        }
+
+        contents.push({ text: prompt });
+
         const response = await ai.models.generateContent({
           model: "gemini-3-pro-image-preview",
-          contents: prompt,
+          contents,
           config: {
             responseModalities: ["TEXT", "IMAGE"],
             imageConfig: {
@@ -353,38 +407,18 @@ server.setRequestHandler(
         );
       }
 
-      if (!fs.existsSync(sourceImage)) {
-        throw new Error(`Source image not found: ${sourceImage}`);
-      }
-
-      // Read and encode the source image
-      const imageBuffer = fs.readFileSync(sourceImage);
-      const base64Image = imageBuffer.toString("base64");
-
-      // Determine MIME type from extension
-      const ext = path.extname(sourceImage).toLowerCase();
-      const mimeType =
-        ext === ".jpg" || ext === ".jpeg"
-          ? "image/jpeg"
-          : ext === ".png"
-          ? "image/png"
-          : ext === ".gif"
-          ? "image/gif"
-          : ext === ".webp"
-          ? "image/webp"
-          : "image/png";
-
       const resolvedAspectRatio = aspectRatio
         ? resolveAspectRatio(aspectRatio)
         : undefined;
       const resolvedResolution = resolveResolution(resolution);
 
       try {
+        const imageData = readImageAsBase64(sourceImage);
         const contents = [
           {
             inlineData: {
-              mimeType,
-              data: base64Image,
+              mimeType: imageData.mimeType,
+              data: imageData.data,
             },
           },
           { text: prompt },
