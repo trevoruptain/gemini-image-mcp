@@ -114,6 +114,7 @@ Generate an image from a text prompt. **The AI must determine the correct output
 ```json
 {
   "path": "/Users/you/my-project/public/images/hero.png",
+  "url": "http://localhost:3001/images/hero.png",
   "aspectRatio": "16:9",
   "resolution": "2K"
 }
@@ -154,11 +155,16 @@ Edit an existing image using natural language. **The AI must determine the corre
 
 ## How It Works
 
-Images are saved **directly to your project** at the path you specify. The AI determines the correct output path by examining your project structure before generating images. This means:
+Images are saved to **two locations**:
 
-- Images appear immediately in your project (e.g., `public/images/`, `src/assets/`)
-- No manual copying required
-- Works seamlessly with any project structure
+1. **Your project** - At the `outputPath` you specify (e.g., `/Users/you/my-project/public/images/hero.png`)
+2. **MCP server** - Also saved to `./images/` and served via Express at `http://localhost:3001/images/`
+
+This means:
+
+- Images appear immediately in your project
+- Images are also accessible via HTTP for previewing
+- MCP resources list all generated images
 
 ## Development
 
