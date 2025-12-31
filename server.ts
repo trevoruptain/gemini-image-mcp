@@ -15,7 +15,6 @@ import express from "express";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { v4 as uuidv4 } from "uuid";
 
 // ESM dirname equivalent
 const __filename = fileURLToPath(import.meta.url);
@@ -158,25 +157,33 @@ function extractImageFromResponse(response: unknown): {
   return null;
 }
 
-// Helper: Save image to specified path
+// Helper: Save image to specified path AND to the MCP server's images directory
 function saveImage(
   imageData: string,
-  outputPath: string,
-  filename?: string
-): { id: string; path: string } {
-  const id = filename || uuidv4();
-  const safeId = id.replace(/[^a-zA-Z0-9_-]/g, "_");
+  outputPath: string
+): { id: string; path: string; url: string } {
+  // Generate ID from filename
+  const filename = path.basename(outputPath, path.extname(outputPath));
+  const safeId = filename.replace(/[^a-zA-Z0-9_-]/g, "_");
 
-  // Ensure the output directory exists
+  const buffer = Buffer.from(imageData, "base64");
+
+  // Save to user's specified output path
   const outputDir = path.dirname(outputPath);
   if (!fs.existsSync(outputDir)) {
     fs.mkdirSync(outputDir, { recursive: true });
   }
-
-  const buffer = Buffer.from(imageData, "base64");
   fs.writeFileSync(outputPath, buffer);
 
-  return { id: safeId, path: outputPath };
+  // Also save to MCP server's images directory for Express serving
+  const localPath = path.join(IMAGES_DIR, `${safeId}.png`);
+  fs.writeFileSync(localPath, buffer);
+
+  return {
+    id: safeId,
+    path: outputPath,
+    url: `http://localhost:${PORT}/images/${safeId}.png`,
+  };
 }
 
 // List available tools
@@ -305,6 +312,7 @@ server.setRequestHandler(
               text: JSON.stringify(
                 {
                   path: saved.path,
+                  url: saved.url,
                   aspectRatio: resolvedAspectRatio,
                   resolution: resolvedResolution,
                 },
@@ -413,6 +421,7 @@ server.setRequestHandler(
               text: JSON.stringify(
                 {
                   path: saved.path,
+                  url: saved.url,
                   sourceImage,
                   aspectRatio: resolvedAspectRatio || "preserved",
                   resolution: resolvedResolution,
