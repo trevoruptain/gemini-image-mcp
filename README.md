@@ -2,7 +2,7 @@
 
 An MCP (Model Context Protocol) server optimized for web development that enables AI assistants to generate and edit images using Google's Gemini API.
 
-After adding the MCP server to Cursor, just prompt the AI to generate or edit images for you - the agent will do the rest!
+After adding the MCP server to Cursor, just prompt the AI to generate or edit images for you - the agent will do the rest.
 
 ## Features
 
