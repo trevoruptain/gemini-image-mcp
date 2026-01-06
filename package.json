@@ -7,7 +7,8 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/server.js",
-    "dev": "tsx server.ts"
+    "dev": "tsx server.ts",
+    "inspect": "npm run build && npx @modelcontextprotocol/inspector dist/server.js"
   },
   "dependencies": {
     "@google/genai": "^0.14.0",

@@ -87,6 +87,21 @@ Add to your `claude_desktop_config.json`:
 }
 ```
 
+## Testing with MCP Inspector
+
+Use the MCP Inspector to test and debug your server:
+
+```bash
+npm run inspect
+```
+
+This will:
+1. Build the TypeScript code
+2. Launch the MCP Inspector in your browser
+3. Allow you to test tools, view resources, and debug requests/responses
+
+Make sure your `.env` file is set up with `GEMINI_API_KEY` before running the inspector.
+
 ## Tools
 
 ### `generate_image`
