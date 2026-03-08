@@ -11,7 +11,7 @@
     "inspect": "npm run build && npx @modelcontextprotocol/inspector dist/server.js"
   },
   "dependencies": {
-    "@google/genai": "^0.14.0",
+    "@google/genai": "^1.44.0",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "express": "^4.21.0",
     "uuid": "^10.0.0"
@@ -27,4 +27,3 @@
     "node": ">=18.0.0"
   }
 }
-

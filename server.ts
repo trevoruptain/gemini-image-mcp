@@ -338,10 +338,13 @@ server.setRequestHandler(
           }
         }
 
-        contents.push({ text: prompt });
+        const aspectHint = resolvedAspectRatio !== "1:1"
+          ? ` The image MUST be in ${resolvedAspectRatio} aspect ratio.`
+          : "";
+        contents.push({ text: prompt + aspectHint });
 
         const response = await ai.models.generateContent({
-          model: "gemini-3-pro-image-preview",
+          model: "gemini-3.1-flash-image-preview",
           contents,
           config: {
             responseModalities: ["TEXT", "IMAGE"],
@@ -414,6 +417,9 @@ server.setRequestHandler(
 
       try {
         const imageData = readImageAsBase64(sourceImage);
+        const aspectHint = resolvedAspectRatio && resolvedAspectRatio !== "1:1"
+          ? ` The image MUST be in ${resolvedAspectRatio} aspect ratio.`
+          : "";
         const contents = [
           {
             inlineData: {
@@ -421,7 +427,7 @@ server.setRequestHandler(
               data: imageData.data,
             },
           },
-          { text: prompt },
+          { text: prompt + aspectHint },
         ];
 
         const config: Record<string, unknown> = {
@@ -436,7 +442,7 @@ server.setRequestHandler(
         }
 
         const response = await ai.models.generateContent({
-          model: "gemini-3-pro-image-preview",
+          model: "gemini-3.1-flash-image-preview",
           contents,
           config: config as Record<string, unknown>,
         });
