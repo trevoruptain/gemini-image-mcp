@@ -26,8 +26,39 @@ const PROJECT_ROOT = __dirname.endsWith("dist")
   ? path.dirname(__dirname)
   : __dirname;
 const IMAGES_DIR = path.join(PROJECT_ROOT, "images");
+
+function loadLocalEnv(): void {
+  const envPath = path.join(PROJECT_ROOT, ".env");
+  if (!fs.existsSync(envPath)) return;
+
+  const envContents = fs.readFileSync(envPath, "utf8");
+  for (const line of envContents.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+
+    const equalsIndex = trimmed.indexOf("=");
+    if (equalsIndex === -1) continue;
+
+    const key = trimmed.slice(0, equalsIndex).trim();
+    const rawValue = trimmed.slice(equalsIndex + 1).trim();
+    const value = rawValue.replace(/^['"]|['"]$/g, "");
+
+    // Prefer the local project .env for credentials so key rotations do not
+    // require editing every MCP client configuration.
+    if (key === "GEMINI_API_KEY" || key === "GEMINI_IMAGE_MODEL") {
+      process.env[key] = value;
+    } else {
+      process.env[key] ||= value;
+    }
+  }
+}
+
+loadLocalEnv();
+
 const PORT = parseInt(process.env.PORT || "3001", 10);
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const GEMINI_IMAGE_MODEL =
+  process.env.GEMINI_IMAGE_MODEL || "gemini-3-pro-image-preview";
 
 // Aspect ratio presets for web development
 const ASPECT_PRESETS: Record<string, string> = {
@@ -53,7 +84,7 @@ const VALID_ASPECT_RATIOS = [
   "21:9",
 ];
 
-// Valid resolutions for Gemini 3 Pro
+// Valid resolutions for current Gemini image models
 const VALID_RESOLUTIONS = ["1K", "2K", "4K"];
 
 // Ensure images directory exists
@@ -287,6 +318,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ["prompt", "sourceImage", "outputPath"],
         },
       },
+      {
+        name: "image_server_status",
+        description:
+          "Return non-secret Gemini image MCP status, including selected model and whether an API key is configured.",
+        inputSchema: {
+          type: "object",
+          properties: {},
+        },
+      },
     ],
   };
 });
@@ -296,6 +336,25 @@ server.setRequestHandler(
   CallToolRequestSchema,
   async (request: CallToolRequest) => {
     const { name, arguments: args } = request.params;
+
+    if (name === "image_server_status") {
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                model: GEMINI_IMAGE_MODEL,
+                hasApiKey: Boolean(GEMINI_API_KEY),
+                envFileLoaded: fs.existsSync(path.join(PROJECT_ROOT, ".env")),
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    }
 
     if (name === "generate_image") {
       const { prompt, outputPath, referenceImages, aspectRatio, resolution } =
@@ -344,7 +403,7 @@ server.setRequestHandler(
         contents.push({ text: prompt + aspectHint });
 
         const response = await ai.models.generateContent({
-          model: "gemini-3.1-flash-image-preview",
+          model: GEMINI_IMAGE_MODEL,
           contents,
           config: {
             responseModalities: ["TEXT", "IMAGE"],
@@ -372,6 +431,7 @@ server.setRequestHandler(
                   url: saved.url,
                   aspectRatio: resolvedAspectRatio,
                   resolution: resolvedResolution,
+                  model: GEMINI_IMAGE_MODEL,
                 },
                 null,
                 2
@@ -442,7 +502,7 @@ server.setRequestHandler(
         }
 
         const response = await ai.models.generateContent({
-          model: "gemini-3.1-flash-image-preview",
+          model: GEMINI_IMAGE_MODEL,
           contents,
           config: config as Record<string, unknown>,
         });
@@ -465,6 +525,7 @@ server.setRequestHandler(
                   sourceImage,
                   aspectRatio: resolvedAspectRatio || "preserved",
                   resolution: resolvedResolution,
+                  model: GEMINI_IMAGE_MODEL,
                 },
                 null,
                 2

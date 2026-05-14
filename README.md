@@ -32,8 +32,9 @@ npm run build
 
 | Variable         | Required | Default | Description                             |
 | ---------------- | -------- | ------- | --------------------------------------- |
-| `GEMINI_API_KEY` | Yes      | -       | Your Google Gemini API key              |
-| `PORT`           | No       | `3001`  | Port for the Express static file server |
+| `GEMINI_API_KEY`   | Yes      | -                            | Your Google Gemini API key              |
+| `GEMINI_IMAGE_MODEL` | No     | `gemini-3-pro-image-preview` | Gemini image model to use. Use `gemini-2.5-flash-image` for the GA model. |
+| `PORT`             | No       | `3001`                       | Port for the Express static file server |
 
 ### Cursor
 
